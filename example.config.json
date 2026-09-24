@@ -1,0 +1,89 @@
+{
+  "applicationDirectory": ".update-youtube",
+  "archiveDirectory": ".",
+  "subtitleLanguage": "en",
+  "transcriptDestination": "Transcripts-YouTube",
+  "quality": {
+    "videoFormat": "bv*[ext=mp4][height<=1080]+ba[ext=m4a]/b[ext=mp4][height<=1080] / bv*[height<=1080]+ba/b[height<=1080]"
+  },
+  "namingProfiles": {
+    "title": {
+      "video": "%(title)s.%(ext)s",
+      "subtitle": "%(title)s-%(id)s.%(ext)s"
+    },
+    "dated": {
+      "video": "%(upload_date)s-%(title)s.%(ext)s",
+      "subtitle": "%(upload_date)s-%(title)s-%(id)s.%(ext)s"
+    },
+    "title-with-id": {
+      "video": "%(title)s [%(id)s].%(ext)s"
+    },
+    "dated-with-id": {
+      "video": "%(upload_date)s-%(title)s [%(id)s].%(ext)s"
+    }
+  },
+  "cookies": {
+    "macos": "safari",
+    "windows": "edge",
+    "linux": "chrome"
+  },
+  "tools": {
+    "ytDlp": {
+      "releaseApi": "https://api.github.com/repos/yt-dlp/yt-dlp/releases/latest",
+      "macos": {
+        "asset": "yt-dlp_macos.zip",
+        "archive": "zip",
+        "binary": "yt-dlp_macos"
+      },
+      "windows": {
+        "asset": "yt-dlp.exe",
+        "binary": "yt-dlp.exe"
+      },
+      "linux": {
+        "asset": "yt-dlp",
+        "binary": "yt-dlp"
+      }
+    },
+    "deno": {
+      "releaseApi": "https://api.github.com/repos/denoland/deno/releases/latest",
+      "macos": {
+        "assets": {
+          "x64": "deno-x86_64-apple-darwin.zip",
+          "arm64": "deno-aarch64-apple-darwin.zip"
+        }
+      },
+      "windows": {
+        "assets": {
+          "x64": "deno-x86_64-pc-windows-msvc.zip",
+          "arm64": "deno-aarch64-pc-windows-msvc.zip"
+        }
+      },
+      "linux": {
+        "assets": {
+          "x64": "deno-x86_64-unknown-linux-gnu.zip",
+          "arm64": "deno-aarch64-unknown-linux-gnu.zip"
+        }
+      }
+    }
+  },
+  "targets": [
+    {
+      "enable": 0,
+      "directory": ".ExampleChannel/.Incoming",
+      "url": "https://www.youtube.com/@CHANNEL_NAME/videos",
+      "namingProfile": "title"
+    }
+  ],
+  "linkRules": [
+    {
+      "sourceDirectory": ".ExampleChannel/.Incoming",
+      "extensions": [".mp4", ".en.srt", ".en.srt.json"],
+      "pattern": "^\\.ExampleChannel/\\.Incoming/Episode ([0-9])((?: - .*)?(?:\\.mp4|-.{11}\\.en\\.srt(?:\\.json)?))$",
+      "replacement": "ExampleChannel/Organized/Episode 0$1$2"
+    }
+  ],
+  "transcriptDirectories": [
+    "ExampleChannel/Organized"
+  ],
+  "postSteps": []
+}

@@ -1,0 +1,13 @@
+.update-youtube/
+customconfig.json
+dist/
+node_modules/
+Transcripts-YouTube/
+config.json
+deprecated/
+customconfig.example.json
+*.mp4
+*.info.json
+*.srt
+*.srt.json
+archive.txt

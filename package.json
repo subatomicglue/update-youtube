@@ -1,0 +1,24 @@
+{
+  "name": "update-youtube",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Cross-platform yt-dlp archive runner",
+  "bin": "update-youtube.js",
+  "scripts": {
+    "help": "node update-youtube.js --help",
+    "archive": "node update-youtube.js",
+    "simulate": "node update-youtube.js --simulate",
+    "test": "node test/run-tests.js",
+    "build": "node scripts/check-node-version.js && node scripts/build.js"
+  },
+  "devDependencies": {
+    "@yao-pkg/pkg": "^6.6.0",
+    "esbuild": "^0.28.2"
+  },
+  "pkg": {
+    "outputPath": "dist"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

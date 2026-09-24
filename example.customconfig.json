@@ -1,0 +1,28 @@
+{
+  "archiveDirectory": "/path/to/private/video-archive",
+  "cookies": {
+    "macos": null,
+    "windows": null,
+    "linux": null
+  },
+  "targets": [
+    {
+      "enable": 0,
+      "directory": "AnotherChannel/Videos",
+      "url": "https://www.youtube.com/@ANOTHER_CHANNEL/videos",
+      "namingProfile": "dated-with-id"
+    }
+  ],
+  "postSteps": [
+    {
+      "command": "${self}",
+      "args": [
+        "scp-transcripts",
+        "${archiveDir}/Transcripts-YouTube",
+        "user@example-host:/path/to/transcripts/"
+      ],
+      "cwd": ".",
+      "platforms": ["macos", "linux"]
+    }
+  ]
+}
