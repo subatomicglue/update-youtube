@@ -11,9 +11,11 @@ function usage() {
   console.log(`Usage: compare.js [checks] <required directory> <larger directory>
 
 Verify that every top-level MP4 in the required directory appears in the larger
-directory. Extra MP4 files in the larger directory are ignored. Matching files
-display resolution/video codec/audio codec/runtime for both copies. A missing
-file displays "missing" in the second stats column and is marked [ERROR].
+directory or one of its subdirectories. Extra MP4 files in the larger directory
+are ignored. Exact filenames are preferred; if one is absent, runs of spaces and
+underscores are treated as equivalent for migrated names. Matching files display
+resolution/video codec/audio codec/runtime for both copies. A missing file
+displays "missing" in the second stats column and is marked [ERROR].
 
 Checks:
   --res       Compare video resolution
@@ -53,6 +55,41 @@ function mp4Names(directory) {
   return new Set(fs.readdirSync(directory, { withFileTypes: true })
     .filter((entry) => entry.isFile() && entry.name.toLowerCase().endsWith('.mp4'))
     .map((entry) => entry.name));
+}
+
+function recursiveMp4Files(directory, relativeDirectory = '') {
+  const files = [];
+  const currentDirectory = path.join(directory, relativeDirectory);
+  for (const entry of fs.readdirSync(currentDirectory, { withFileTypes: true })) {
+    const relativeName = path.join(relativeDirectory, entry.name);
+    if (entry.isDirectory()) files.push(...recursiveMp4Files(directory, relativeName));
+    else if (entry.isFile() && entry.name.toLowerCase().endsWith('.mp4')) files.push(relativeName);
+  }
+  return files;
+}
+
+function escapedRegex(text) {
+  return text.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&');
+}
+
+function migratedNameRegex(name) {
+  // Naming migrations may exchange title whitespace and underscores in either
+  // input directory. Exact-name lookup still takes precedence over this fallback.
+  const pieces = name.split(/([ _]+)/u);
+  const expression = pieces.map((piece, index) => (
+    index % 2 === 1 ? '[ _]+' : escapedRegex(piece)
+  )).join('');
+  return new RegExp(`^${expression}$`, 'u');
+}
+
+function findSecondFile(name, secondNames, recursiveFiles) {
+  if (secondNames.has(name)) return { relativeName: name };
+
+  const pattern = migratedNameRegex(name);
+  const matches = recursiveFiles.filter((relativeName) => pattern.test(path.basename(relativeName)));
+  if (matches.length === 1) return { relativeName: matches[0], migrated: true };
+  if (matches.length > 1) return { ambiguous: matches };
+  return null;
 }
 
 function probe(filename) {
@@ -129,6 +166,7 @@ function main() {
 
   const firstNames = mp4Names(firstDirectory);
   const secondNames = mp4Names(secondDirectory);
+  const recursiveSecondFiles = recursiveMp4Files(secondDirectory);
   const requiredNames = [...firstNames].sort((left, right) => left.localeCompare(right));
 
   const rows = [];
@@ -136,17 +174,20 @@ function main() {
     let first;
     let second;
     let failure = '';
-    const secondMissing = !secondNames.has(name);
+    const secondMatch = findSecondFile(name, secondNames, recursiveSecondFiles);
+    const secondMissing = !secondMatch;
     try {
       first = probe(path.join(firstDirectory, name));
     } catch (error) {
       failure = `first: ${error.message}`;
     }
-    if (secondMissing) {
+    if (secondMatch && secondMatch.ambiguous) {
+      failure += `${failure ? '; ' : ''}ambiguous migrated-name matches: ${secondMatch.ambiguous.join(', ')}`;
+    } else if (secondMissing) {
       failure += `${failure ? '; ' : ''}missing from second directory`;
     } else {
       try {
-        second = probe(path.join(secondDirectory, name));
+        second = probe(path.join(secondDirectory, secondMatch.relativeName));
       } catch (error) {
         failure += `${failure ? '; ' : ''}second: ${error.message}`;
       }
@@ -168,6 +209,7 @@ function main() {
       first,
       second,
       secondMissing,
+      secondName: secondMatch && secondMatch.relativeName,
       failure
     });
   }
@@ -186,7 +228,8 @@ function main() {
   const secondWidth = Math.max(0, ...rows.map((row) => row.secondText.length));
   for (const row of rows) {
     const status = row.failure ? '[ERROR]' : '[OK]   ';
-    console.log(`${status} ${row.firstText.padEnd(firstWidth)} | ${row.secondText.padEnd(secondWidth)} | ${row.name}`);
+    const matchedName = row.secondName && row.secondName !== row.name ? ` -> ${row.secondName}` : '';
+    console.log(`${status} ${row.firstText.padEnd(firstWidth)} | ${row.secondText.padEnd(secondWidth)} | ${row.name}${matchedName}`);
   }
 
   return rows.some((row) => row.failure) ? 1 : 0;
