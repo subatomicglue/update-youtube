@@ -1,8 +1,10 @@
 .update-youtube/
+.generate-transcript/
+__pycache__/
+*.pyc
 customconfig.json
 dist/
 node_modules/
-Transcripts-YouTube/
 config.json
 deprecated/
 customconfig.example.json

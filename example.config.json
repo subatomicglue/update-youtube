@@ -3,6 +3,13 @@
   "archiveDirectory": ".",
   "subtitleLanguage": "en",
   "transcriptDestination": "Transcripts-YouTube",
+  "transcriptGeneration": {
+    "enabled": true,
+    "backend": "faster-whisper",
+    "language": "en",
+    "chunkSeconds": 20,
+    "applicationDirectory": ".generate-transcript"
+  },
   "quality": {
     "videoFormat": "bv*[ext=mp4][height<=1080]+ba[ext=m4a]/b[ext=mp4][height<=1080] / bv*[height<=1080]+ba/b[height<=1080]"
   },
@@ -77,8 +84,8 @@
   "linkRules": [
     {
       "sourceDirectory": ".ExampleChannel/.Incoming",
-      "extensions": [".mp4", ".en.srt", ".en.srt.json"],
-      "pattern": "^\\.ExampleChannel/\\.Incoming/Episode ([0-9])((?: - .*)?(?:\\.mp4|-.{11}\\.en\\.srt(?:\\.json)?))$",
+      "extensions": [".mp4", ".srt", ".srt.json"],
+      "pattern": "^\\.ExampleChannel/\\.Incoming/Episode ([0-9])((?: - .*)?(?:\\.mp4|-.{11}\\.[^.]+\\.srt(?:\\.json)?))$",
       "replacement": "ExampleChannel/Organized/Episode 0$1$2"
     }
   ],

@@ -3,7 +3,10 @@
   "version": "1.0.0",
   "private": true,
   "description": "Cross-platform yt-dlp archive runner",
-  "bin": "update-youtube.js",
+  "bin": {
+    "update-youtube": "update-youtube.js",
+    "generate-transcript": "generate-transcript.js"
+  },
   "scripts": {
     "help": "node update-youtube.js --help",
     "archive": "node update-youtube.js",
