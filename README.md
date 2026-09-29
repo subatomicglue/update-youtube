@@ -63,6 +63,16 @@ update-youtube --transcript --help
 update-youtube --transcript lesson.mp4
 ```
 
+`render-transcript.js` renders one `.srt.json` transcript through
+`template-transcript.md` and writes a sibling `.md` file. It uses the matching
+`.info.json` title and YouTube ID when available, with filename fallbacks when
+metadata is missing or unreadable. Normal archive runs generate the Markdown
+alongside each transcript JSON automatically.
+
+```sh
+./render-transcript.js path/to/video-ID.en.srt.json
+```
+
 The default `faster-whisper` backend provides native timestamps and is forced
 to English by default. Qwen3-ASR and Omnilingual ASR use conservative chunk
 timestamps for Greek; Omnilingual ASR can be explicitly conditioned for
@@ -180,6 +190,13 @@ This first bundles the local modules, then builds standalone executables into `d
 
 Node.js is embedded in every standalone build. Running `update-youtube.js` with system Node.js 20+ remains available as an optional source/development path. yt-dlp and Deno are downloaded into the local application cache on every platform; FFmpeg comes from the OS package manager.
 
-The completed `dist/` directory also contains `example.config.json`, `example.customconfig.json`, and this README. The temporary `.cjs` compiler bundle is removed automatically. Copy the examples to `config.json` and optionally `customconfig.json`; a standalone executable looks for `config.json` in the current directory first, then beside the executable.
+The renderer is embedded in every `update-youtube` executable;
+`render-transcript.js` remains available as a source utility and is not built
+as a separate executable. The completed `dist/` directory also contains
+`template-transcript.md`, `example.config.json`, `example.customconfig.json`,
+and this README. The temporary `.cjs` compiler bundle is removed automatically.
+Copy the examples to `config.json` and optionally
+`customconfig.json`; a standalone executable looks for `config.json` in the
+current directory first, then beside the executable.
 
 The standalone executable expects `config.json` beside the working configuration location; pass `--config` when it lives elsewhere.

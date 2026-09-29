@@ -7,6 +7,7 @@ const { spawnSync } = require('child_process');
 
 const projectDirectory = path.resolve(__dirname, '..');
 const distDirectory = path.join(projectDirectory, 'dist');
+const targets = 'node22-macos-x64,node22-macos-arm64,node22-win-x64,node22-linux-x64,node22-linux-arm64';
 const bundle = path.join(distDirectory, 'update-youtube.cjs');
 
 function run(command, args) {
@@ -26,16 +27,12 @@ run(require.resolve('esbuild/bin/esbuild'), [
   'update-youtube.js', '--bundle', '--platform=node', '--format=cjs',
   `--outfile=${bundle}`
 ]);
-
 run(process.execPath, [
   require.resolve('@yao-pkg/pkg/lib-es5/bin.js'),
-  bundle, '--sea',
-  '--targets', 'node22-macos-x64,node22-macos-arm64,node22-win-x64,node22-linux-x64,node22-linux-arm64',
-  '--out-path', distDirectory
+  bundle, '--sea', '--targets', targets, '--out-path', distDirectory
 ]);
-
 fs.unlinkSync(bundle);
-for (const filename of ['example.config.json', 'example.customconfig.json', 'README.md']) {
+for (const filename of ['example.config.json', 'example.customconfig.json', 'template-transcript.md', 'README.md']) {
   fs.copyFileSync(path.join(projectDirectory, filename), path.join(distDirectory, filename));
 }
 

@@ -5,7 +5,8 @@
   "description": "Cross-platform yt-dlp archive runner",
   "bin": {
     "update-youtube": "update-youtube.js",
-    "generate-transcript": "generate-transcript.js"
+    "generate-transcript": "generate-transcript.js",
+    "render-transcript": "render-transcript.js"
   },
   "scripts": {
     "help": "node update-youtube.js --help",

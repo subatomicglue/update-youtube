@@ -18,6 +18,7 @@ const {
   formatDetailedRow, humanFileSize, selectGroups, updateDetailWidths
 } = require('../lib/list-assets');
 const { displayAsset, validateGroup } = require('../lib/validate');
+const { generateTranscriptMarkdown } = require('../lib/transcript-markdown');
 const {
   assertAudioStream, BACKENDS: transcriptBackends, DEFAULT_BACKEND: defaultTranscriptBackend,
   installOutput: installTranscriptOutput, parseArguments: parseTranscriptArguments,
@@ -45,6 +46,22 @@ test('custom targets and post-steps append while settings override', () => {
   assert.deepStrictEqual(result.targets.map((item) => item.url), ['a', 'b']);
   assert.strictEqual(result.postSteps.length, 1);
   assert.deepStrictEqual(result.cookies, { macos: 'safari', windows: 'chrome' });
+});
+
+test('transcript Markdown uses filename metadata when info JSON is missing', () => {
+  const temporary = fs.mkdtempSync(path.join(require('os').tmpdir(), 'transcript-markdown-'));
+  try {
+    const transcript = path.join(temporary, 'Fallback_Title-BQ2SAA08k7k.en.srt.json');
+    const template = path.join(temporary, 'template-transcript.md');
+    fs.writeFileSync(transcript, JSON.stringify([{ text: 'First line.' }, { text: 'Second line.' }]));
+    fs.writeFileSync(template, '# {%title%}\n{%youtubeID%}\n{%transcript%}\n');
+    const output = generateTranscriptMarkdown(transcript, template);
+    assert.strictEqual(output, path.join(temporary, 'Fallback_Title-BQ2SAA08k7k.en.md'));
+    assert.strictEqual(fs.readFileSync(output, 'utf8'),
+      '# Fallback Title\nBQ2SAA08k7k\nFirst line. Second line.\n');
+  } finally {
+    fs.rmSync(temporary, { recursive: true, force: true });
+  }
 });
 
 test('archive paths resolve beneath archiveDirectory', () => {
