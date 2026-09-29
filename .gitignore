@@ -2,12 +2,11 @@
 .generate-transcript/
 __pycache__/
 *.pyc
+config.json
 customconfig.json
 dist/
 node_modules/
-config.json
 deprecated/
-customconfig.example.json
 *.mp4
 *.info.json
 *.srt

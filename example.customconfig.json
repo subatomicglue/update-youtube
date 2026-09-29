@@ -15,12 +15,9 @@
   ],
   "postSteps": [
     {
-      "command": "${self}",
-      "args": [
-        "scp-transcripts",
-        "${archiveDir}/Transcripts-YouTube",
-        "user@example-host:/path/to/transcripts/"
-      ],
+      "name": "Deploy transcripts",
+      "enabled": false,
+      "command": "bash -c 'scp -C \"${archiveDir}/Transcripts-YouTube/\"*.srt.json \"user@example-host:/path/to/transcripts/\"'",
       "cwd": ".",
       "platforms": ["macos", "linux"]
     }

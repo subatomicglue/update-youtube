@@ -8,7 +8,6 @@ const {
   applyLinkRules, assertCookieAccess, backfillInfo, collectTranscripts, downloadTarget,
   repairArchivedVideos, runPostSteps
 } = require('./lib/archive');
-const { scpTranscripts } = require('./lib/scp-transcripts');
 const { handleMigrations } = require('./lib/migrate');
 const { runQualityMode } = require('./lib/quality');
 const { printAssets, printDetailedAssets, printGroups } = require('./lib/list-assets');
@@ -162,11 +161,6 @@ async function main() {
     process.exitCode = transcriptMain(process.argv.slice(3), {
       cacheDirectory, commandName: 'update-youtube --transcript'
     });
-    return;
-  }
-  if (process.argv[2] === 'scp-transcripts') {
-    const [, , , directory = 'Transcripts-YouTube', destination] = process.argv;
-    scpTranscripts(path.resolve(directory), destination);
     return;
   }
   const options = parseArguments(process.argv.slice(2));
