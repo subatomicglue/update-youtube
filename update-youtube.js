@@ -106,20 +106,8 @@ function printHelp() {
     `  update-youtube --transcript [options] FILE_OR_DIRECTORY\n` +
     `  Missing YouTube subtitles automatically fall back to local transcription.\n` +
     `  Run update-youtube --transcript --help for backend options.\n\n` +
-    `npm commands:\n\n` +
-    `  npm run help      Show this help\n` +
-    `  npm test          Run the test suite\n` +
-    `  npm run simulate  Preview an archive run\n` +
-    `  npm run archive   Run the archiver from source\n` +
-    `  npm run build     Build all standalone bundles into dist/\n\n` +
     `Naming migration: set namingProfile and migrateFrom, preview normally, then rerun with --apply.\n` +
-    `Run update-youtube --help-migrate for the complete, resumable procedure.\n\n` +
-    `Build outputs:\n\n` +
-    `  dist/update-youtube-macos-x64\n` +
-    `  dist/update-youtube-macos-arm64\n` +
-    `  dist/update-youtube-win-x64.exe\n` +
-    `  dist/update-youtube-linux-x64\n` +
-    `  dist/update-youtube-linux-arm64`);
+    `Run update-youtube --help-migrate for the complete, resumable procedure.`);
 }
 
 function printMigrationHelp() {

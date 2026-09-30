@@ -9,7 +9,7 @@
     "render-transcript": "render-transcript.js"
   },
   "scripts": {
-    "help": "node update-youtube.js --help",
+    "help": "node scripts/npm-help.js",
     "archive": "node update-youtube.js",
     "simulate": "node update-youtube.js --simulate",
     "test": "node test/run-tests.js",

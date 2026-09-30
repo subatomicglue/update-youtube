@@ -64,6 +64,32 @@ test('transcript Markdown uses filename metadata when info JSON is missing', () 
   }
 });
 
+test('simulation reports missing transcript Markdown without writing it', () => {
+  const temporary = fs.mkdtempSync(path.join(require('os').tmpdir(), 'transcript-markdown-plan-'));
+  const id = 'BQ2SAA08k7k';
+  try {
+    fs.writeFileSync(path.join(temporary, 'archive.txt'), `youtube ${id}\n`);
+    fs.writeFileSync(path.join(temporary, 'Lesson.mp4'), 'video');
+    fs.writeFileSync(path.join(temporary, 'Lesson.info.json'), JSON.stringify({ id, title: 'Lesson' }));
+    fs.writeFileSync(path.join(temporary, `Lesson-${id}.en.srt`), '1\n00:00:00,000 --> 00:00:01,000\nText\n');
+    fs.writeFileSync(path.join(temporary, `Lesson-${id}.en.srt.json`), JSON.stringify([{ text: 'Text' }]));
+    const messages = [];
+    const originalLog = console.log;
+    console.log = (message) => messages.push(String(message));
+    try {
+      archiveTest.fetchSubtitles({
+        configDirectory: path.resolve(__dirname, '..'), cookies: {}
+      }, {}, temporary, { directory: 'Lesson', archive: 'archive.txt' }, { simulate: true });
+    } finally {
+      console.log = originalLog;
+    }
+    assert(messages.some((message) => message === `[transcript] markdown Lesson-${id}.en.md`));
+    assert(!fs.existsSync(path.join(temporary, `Lesson-${id}.en.md`)));
+  } finally {
+    fs.rmSync(temporary, { recursive: true, force: true });
+  }
+});
+
 test('archive paths resolve beneath archiveDirectory', () => {
   const config = { configDirectory: '/config', workingDirectory: '/work', archiveDirectory: 'archive' };
   assert.strictEqual(resolveArchive(config), path.resolve('/work/archive'));
