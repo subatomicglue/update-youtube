@@ -84,8 +84,8 @@
   "linkRules": [
     {
       "sourceDirectory": ".ExampleChannel/.Incoming",
-      "extensions": [".mp4", ".srt", ".srt.json"],
-      "pattern": "^\\.ExampleChannel/\\.Incoming/Episode ([0-9])((?: - .*)?(?:\\.mp4|-.{11}\\.[^.]+\\.srt(?:\\.json)?))$",
+      "extensions": [".mp4", ".info.json", ".srt", ".srt.json", ".md"],
+      "pattern": "^\\.ExampleChannel/\\.Incoming/Episode ([0-9])((?: - .*)?(?:\\.mp4|\\.info\\.json|-[A-Za-z0-9_-]{11}\\.[^.]+\\.(?:srt(?:\\.json)?|md)))$",
       "replacement": "ExampleChannel/Organized/Episode 0$1$2"
     }
   ],

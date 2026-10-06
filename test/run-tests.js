@@ -4,7 +4,10 @@ const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
 const { findConfigPath, mergeConfig, resolveArchive } = require('../lib/config');
-const { backfillInfo, outputFormat, repairArchivedVideos, videoFormat, _test: archiveTest } = require('../lib/archive');
+const { resolutionAtLeast } = require('../compare');
+const {
+  applyLinkRules, backfillInfo, outputFormat, repairArchivedVideos, videoFormat, _test: archiveTest
+} = require('../lib/archive');
 const {
   canonicalSrtJson, convertSrtText, isSrtCompanion, isSrtJsonCompanion
 } = require('../lib/subtitles');
@@ -22,7 +25,7 @@ const { generateTranscriptMarkdown } = require('../lib/transcript-markdown');
 const {
   assertAudioStream, BACKENDS: transcriptBackends, DEFAULT_BACKEND: defaultTranscriptBackend,
   installOutput: installTranscriptOutput, parseArguments: parseTranscriptArguments,
-  main: transcriptMain, materializeAdapter, mediaInputs: transcriptMediaInputs, srtText,
+  main: transcriptMain, materializeAdapter, mediaInputs: transcriptMediaInputs, NoTranscriptTextError, srtText,
   transcriptOutput
 } = require('../generate-transcript');
 
@@ -275,6 +278,43 @@ test('missing YouTube subtitles fall back to the shared local transcript generat
   }
 });
 
+test('archive runs treat a valid empty transcript as no speech instead of failure', () => {
+  const temporary = fs.mkdtempSync(path.join(require('os').tmpdir(), 'local-transcript-empty-'));
+  try {
+    fs.writeFileSync(path.join(temporary, 'archive.txt'), 'youtube BQ2SAA08k7k\n');
+    fs.writeFileSync(path.join(temporary, 'Music.mp4'), 'video');
+    fs.writeFileSync(path.join(temporary, 'Music.info.json'), JSON.stringify({
+      id: 'BQ2SAA08k7k', subtitles: {}, automatic_captions: {}
+    }));
+    const errors = archiveTest.fetchSubtitles({ configDirectory: temporary, cookies: {} }, {}, temporary, {
+      directory: 'videos', archive: 'archive.txt'
+    }, {
+      simulate: false,
+      generateTranscript() {
+        throw new NoTranscriptTextError();
+      }
+    });
+    assert.deepStrictEqual(errors, []);
+    assert(!fs.existsSync(path.join(temporary, 'Music.faster-whisper.srt')));
+    const marker = path.join(temporary, 'Music.faster-whisper.srt.json');
+    assert.deepStrictEqual(JSON.parse(fs.readFileSync(marker, 'utf8')), []);
+    let retries = 0;
+    const retryErrors = archiveTest.fetchSubtitles({ configDirectory: temporary, cookies: {} }, {}, temporary, {
+      directory: 'videos', archive: 'archive.txt'
+    }, {
+      simulate: false,
+      generateTranscript() {
+        retries += 1;
+        throw new Error('must not retry a no-speech marker');
+      }
+    });
+    assert.deepStrictEqual(retryErrors, []);
+    assert.strictEqual(retries, 0);
+  } finally {
+    fs.rmSync(temporary, { recursive: true, force: true });
+  }
+});
+
 test('normal archive runs reuse an existing generated transcript without invoking its backend', () => {
   const temporary = fs.mkdtempSync(path.join(require('os').tmpdir(), 'local-transcript-existing-'));
   try {
@@ -346,6 +386,13 @@ test('video resolution checks support independent minimum dimensions', () => {
   assert(meetsRequirements({ width: 1920, height: 1080 }, { width: 1920, height: 1080 }));
   assert(!meetsRequirements({ width: 1280, height: 1080 }, { width: 1920, height: 1080 }));
   assert(meetsRequirements({ width: 640, height: 1080 }, { width: null, height: 1080 }));
+});
+
+test('directory comparison accepts equal or greater candidate resolution', () => {
+  assert(resolutionAtLeast({ width: 1280, height: 720 }, { width: 1280, height: 720 }));
+  assert(resolutionAtLeast({ width: 1280, height: 720 }, { width: 1920, height: 1080 }));
+  assert(!resolutionAtLeast({ width: 1920, height: 1080 }, { width: 1280, height: 720 }));
+  assert(!resolutionAtLeast({ width: 1920, height: 1080 }, { width: 2560, height: 720 }));
 });
 
 test('transcript generation exposes all backends and safe defaults', () => {
@@ -850,6 +897,217 @@ test('example link rules produce curated names', () => {
   assert.strictEqual(
     source.replace(new RegExp(episode.pattern, episode.flags || 'u'), episode.replacement),
     'ExampleChannel/Organized/Episode 03 - Sample.mp4'
+  );
+});
+
+test('link rules replace macOS network placeholders with absolute symlinks', () => {
+  const temporary = fs.mkdtempSync(path.join(require('os').tmpdir(), 'video-archiver-links-'));
+  try {
+    const sourceDirectory = path.join(temporary, '.Incoming');
+    const targetDirectory = path.join(temporary, 'Curated');
+    const source = path.join(sourceDirectory, 'Episode 7.mp4');
+    const target = path.join(targetDirectory, 'S1E7.mp4');
+    fs.mkdirSync(sourceDirectory);
+    fs.mkdirSync(targetDirectory);
+    fs.writeFileSync(source, 'video');
+    fs.writeFileSync(target, 'XSym\n0161\nplaceholder\n/old/mount/Episode 7.mp4\n');
+    const config = {
+      archiveDirectory: temporary,
+      configDirectory: temporary,
+      workingDirectory: temporary,
+      linkRules: [{
+        sourceDirectory: '.Incoming', extensions: ['.mp4'],
+        pattern: '^\\.Incoming/Episode ([0-9]+)\\.mp4$', replacement: 'Curated/S1E$1.mp4'
+      }]
+    };
+    const errors = applyLinkRules(config, temporary, { simulate: false });
+    assert.deepStrictEqual(errors, []);
+    assert(fs.lstatSync(target).isSymbolicLink());
+    assert.strictEqual(fs.readlinkSync(target), fs.realpathSync(source));
+    assert.strictEqual(fs.realpathSync(target), fs.realpathSync(source));
+  } finally {
+    fs.rmSync(temporary, { recursive: true, force: true });
+  }
+});
+
+test('link rules never overwrite an existing real file', () => {
+  const temporary = fs.mkdtempSync(path.join(require('os').tmpdir(), 'video-archiver-link-collision-'));
+  try {
+    fs.mkdirSync(path.join(temporary, '.Incoming'));
+    fs.mkdirSync(path.join(temporary, 'Curated'));
+    fs.writeFileSync(path.join(temporary, '.Incoming', 'Episode 7.mp4'), 'source video');
+    const target = path.join(temporary, 'Curated', 'S1E7.mp4');
+    fs.writeFileSync(target, 'existing real video');
+    const errors = applyLinkRules({
+      archiveDirectory: temporary,
+      configDirectory: temporary,
+      workingDirectory: temporary,
+      linkRules: [{
+        sourceDirectory: '.Incoming', extensions: ['.mp4'],
+        pattern: '^\\.Incoming/Episode ([0-9]+)\\.mp4$', replacement: 'Curated/S1E$1.mp4'
+      }]
+    }, temporary, { simulate: false });
+    assert.deepStrictEqual(errors, []);
+    assert.strictEqual(fs.readFileSync(target, 'utf8'), 'existing real video');
+    assert(!fs.lstatSync(target).isSymbolicLink());
+  } finally {
+    fs.rmSync(temporary, { recursive: true, force: true });
+  }
+});
+
+test('link rules use the first matching rule for each source asset', () => {
+  const temporary = fs.mkdtempSync(path.join(require('os').tmpdir(), 'video-archiver-link-precedence-'));
+  try {
+    fs.mkdirSync(path.join(temporary, '.Incoming'));
+    fs.writeFileSync(path.join(temporary, '.Incoming', 'Lesson_1.mp4'), 'video');
+    const shared = { sourceDirectory: '.Incoming', extensions: ['.mp4'], decodeRestrictedTitle: true };
+    const errors = applyLinkRules({
+      archiveDirectory: temporary,
+      configDirectory: temporary,
+      workingDirectory: temporary,
+      linkRules: [
+        { ...shared, pattern: '^\\.Incoming/Lesson ([0-9]+)\\.mp4$', replacement: 'Curated/Lesson 0$1.mp4' },
+        { ...shared, pattern: '^\\.Incoming/(.*)\\.mp4$', replacement: 'Curated/Fallback - $1.mp4' }
+      ]
+    }, temporary, { simulate: false });
+    assert.deepStrictEqual(errors, []);
+    assert(fs.lstatSync(path.join(temporary, 'Curated', 'Lesson 01.mp4')).isSymbolicLink());
+    assert(!fs.existsSync(path.join(temporary, 'Curated', 'Fallback - Lesson 1.mp4')));
+  } finally {
+    fs.rmSync(temporary, { recursive: true, force: true });
+  }
+});
+
+test('link rules ignore macOS AppleDouble metadata files', () => {
+  const temporary = fs.mkdtempSync(path.join(require('os').tmpdir(), 'video-archiver-link-appledouble-'));
+  try {
+    fs.mkdirSync(path.join(temporary, '.Incoming'));
+    fs.writeFileSync(path.join(temporary, '.Incoming', '._Episode 7.info.json'), 'metadata');
+    const errors = applyLinkRules({
+      archiveDirectory: temporary,
+      configDirectory: temporary,
+      workingDirectory: temporary,
+      linkRules: [{
+        sourceDirectory: '.Incoming', extensions: ['.info.json'],
+        pattern: '^\\.Incoming/\\._Episode ([0-9]+)\\.info\\.json$', replacement: 'Curated/S1E$1.info.json'
+      }]
+    }, temporary, { simulate: false });
+    assert.deepStrictEqual(errors, []);
+    assert(!fs.existsSync(path.join(temporary, 'Curated')));
+  } finally {
+    fs.rmSync(temporary, { recursive: true, force: true });
+  }
+});
+
+test('link rules decode restricted titles without changing video IDs', () => {
+  const source = '.LadyBabylon/.Academy/Ancient_Greek_Lesson_4-a_b-cD12_34.en.srt.json';
+  assert.strictEqual(
+    archiveTest.decodeRestrictedLinkSource(source),
+    '.LadyBabylon/.Academy/Ancient Greek Lesson 4-a_b-cD12_34.en.srt.json'
+  );
+  assert.strictEqual(
+    archiveTest.decodeRestrictedLinkSource('.LadyBabylon/.Academy/Ancient_Greek_Lesson_4.mp4'),
+    '.LadyBabylon/.Academy/Ancient Greek Lesson 4.mp4'
+  );
+  assert.strictEqual(
+    archiveTest.decodeRestrictedLinkSource('.LadyBabylon/.Academy/Ancient_Greek_Lesson_4.info.json'),
+    '.LadyBabylon/.Academy/Ancient Greek Lesson 4.info.json'
+  );
+});
+
+test('Academy link rules cover every legacy naming form after restricted-title decoding', () => {
+  const suffix = '(?:\\.mp4|\\.info\\.json|-[A-Za-z0-9_-]{11}\\.[^.]+\\.(?:srt(?:\\.json)?|md))';
+  const prefix = '^\\.LadyBabylon/\\.TheAcademyOfAmmonU/';
+  const rules = [
+    {
+      pattern: `${prefix}Ammon U *(?::|：|-) +Basic Training +- +Ancient Greek Lesson ([0-9])([^0-9.]*)(${suffix})$`,
+      replacement: 'LadyBabylon/TheAcademyOfAmmonU/Ammon U - Basic Training - 0$1 - Ancient Greek Lesson$2$3',
+      transforms: [{ pattern: '@auld boy', replacement: '@auld_boy' }]
+    },
+    {
+      pattern: `${prefix}Ammon U *(?::|：|-) +Basic Training +- +Ancient Greek Lesson ([0-9]{2})([^0-9.]*)(${suffix})$`,
+      replacement: 'LadyBabylon/TheAcademyOfAmmonU/Ammon U - Basic Training - $1 - Ancient Greek Lesson$2$3'
+    },
+    {
+      pattern: `${prefix}(.*?) *(?::|：|-) +Basic +Training +AU-([0-9]+)(${suffix})$`,
+      replacement: 'LadyBabylon/TheAcademyOfAmmonU/Ammon U - Basic Training - $2 - $1$3'
+    },
+    {
+      pattern: `${prefix}(.*?\\S) +- +(\\S.*?)(${suffix})$`,
+      replacement: 'LadyBabylon/TheAcademyOfAmmonU/Ammon U - Basic Training - $1 - $2$3'
+    }
+  ];
+  const rename = (source) => {
+    const decoded = archiveTest.decodeRestrictedLinkSource(source);
+    for (const rule of rules) {
+      const pattern = new RegExp(rule.pattern, rule.flags || 'u');
+      if (pattern.test(decoded)) {
+        let target = decoded.replace(pattern, rule.replacement);
+        for (const transform of rule.transforms || []) {
+          target = target.replace(new RegExp(transform.pattern, transform.flags || 'g'), transform.replacement);
+        }
+        return target;
+      }
+    }
+    return null;
+  };
+  assert.strictEqual(rename('.LadyBabylon/.TheAcademyOfAmmonU/Ammon_U_-_Basic_Training_-_Ancient_Greek_Lesson_4_with_@auld_boy.mp4'),
+    'LadyBabylon/TheAcademyOfAmmonU/Ammon U - Basic Training - 04 - Ancient Greek Lesson with @auld_boy.mp4');
+  assert.strictEqual(rename('.LadyBabylon/.TheAcademyOfAmmonU/Ammon_U_-_Basic_Training_-_Ancient_Greek_Lesson_11_with_@GnosticInformant-ihwOihghXTw.en.srt.json'),
+    'LadyBabylon/TheAcademyOfAmmonU/Ammon U - Basic Training - 11 - Ancient Greek Lesson with @GnosticInformant-ihwOihghXTw.en.srt.json');
+  assert.strictEqual(rename('.LadyBabylon/.TheAcademyOfAmmonU/Ithyphallic_Song_-_Basic_Training_AU-15-i6XKQYloiH8.en.md'),
+    'LadyBabylon/TheAcademyOfAmmonU/Ammon U - Basic Training - 15 - Ithyphallic Song-i6XKQYloiH8.en.md');
+  assert.strictEqual(rename('.LadyBabylon/.TheAcademyOfAmmonU/Jesus_Sells_Thomas_-_Extra_Material.mp4'),
+    'LadyBabylon/TheAcademyOfAmmonU/Ammon U - Basic Training - Jesus Sells Thomas - Extra Material.mp4');
+  assert.strictEqual(rename('.LadyBabylon/.TheAcademyOfAmmonU/Jesus_Sells_Thomas_-_Extra_Material.info.json'),
+    'LadyBabylon/TheAcademyOfAmmonU/Ammon U - Basic Training - Jesus Sells Thomas - Extra Material.info.json');
+});
+
+test('link rules preserve literal underscores in legacy filenames', () => {
+  assert.strictEqual(
+    archiveTest.decodeRestrictedLinkSource('.Academy/Ancient Greek Lesson 4 with @auld_boy： Course.mp4'),
+    '.Academy/Ancient Greek Lesson 4 with @auld_boy： Course.mp4'
+  );
+});
+
+test('Sybil link rule supports legacy and restricted filenames for every asset suffix', () => {
+  const rule = {
+    decodeRestrictedTitle: true,
+    pattern: '^\\.LadyBabylon/\\.SelectionsOfTheSybil/(.*?) *(?::|：|-) +(.*?) +Season *([0-9]+) +- +(?:Episode +)?([IVX0-9]+)((?:\\.mp4|\\.info\\.json|-[A-Za-z0-9_-]{11}\\.[^.]+\\.(?:srt(?:\\.json)?|md)))$',
+    replacement: 'LadyBabylon/SelectionsOfTheSybil/S$3E$4 - $2 - $1$5',
+    transforms: [
+      { pattern: 'E(VII|7) ', replacement: 'E7 ' },
+      { pattern: 'E(VI|6) ', replacement: 'E6 ' },
+      { pattern: 'E(V|5) ', replacement: 'E5 ' },
+      { pattern: 'E(IV|4) ', replacement: 'E4 ' },
+      { pattern: 'E(III|3) ', replacement: 'E3 ' },
+      { pattern: 'E(II|2) ', replacement: 'E2 ' },
+      { pattern: 'E(I|1) ', replacement: 'E1 ' }
+    ]
+  };
+  const rename = (source) => {
+    const decoded = rule.decodeRestrictedTitle ? archiveTest.decodeRestrictedLinkSource(source) : source;
+    let target = decoded.replace(new RegExp(rule.pattern, rule.flags || 'u'), rule.replacement);
+    for (const transform of rule.transforms || []) {
+      target = target.replace(new RegExp(transform.pattern, transform.flags || 'g'), transform.replacement);
+    }
+    return target;
+  };
+  assert.strictEqual(
+    rename('.LadyBabylon/.SelectionsOfTheSybil/Eternal_Life_-_Satanic_Initiation_Season_5_-_Episode_IV.mp4'),
+    'LadyBabylon/SelectionsOfTheSybil/S5E4 - Satanic Initiation - Eternal Life.mp4'
+  );
+  assert.strictEqual(
+    rename('.LadyBabylon/.SelectionsOfTheSybil/Jesus Necromancer： Wednesday Night Bible Studies Season 7 - III.info.json'),
+    'LadyBabylon/SelectionsOfTheSybil/S7E3 - Wednesday Night Bible Studies - Jesus Necromancer.info.json'
+  );
+  assert.strictEqual(
+    rename('.LadyBabylon/.SelectionsOfTheSybil/Eternal_Life_-_Satanic_Initiation_Season_5_-_Episode_VII-a_b-cD12_34.en.srt.json'),
+    'LadyBabylon/SelectionsOfTheSybil/S5E7 - Satanic Initiation - Eternal Life-a_b-cD12_34.en.srt.json'
+  );
+  assert.strictEqual(
+    rename('.LadyBabylon/.SelectionsOfTheSybil/Eternal_Life_-_Satanic_Initiation_Season_5_-_Episode_VII-a_b-cD12_34.en.md'),
+    'LadyBabylon/SelectionsOfTheSybil/S5E7 - Satanic Initiation - Eternal Life-a_b-cD12_34.en.md'
   );
 });
 
