@@ -115,11 +115,17 @@ function probe(filename) {
   if (!Number.isFinite(duration) || duration <= 0) throw new Error('invalid duration');
 
   return {
+    width: video.width,
+    height: video.height,
     resolution: `${video.width}x${video.height}`,
     video: video.codec_name,
     audio: audio.codec_name,
     duration
   };
+}
+
+function resolutionAtLeast(required, candidate) {
+  return candidate.width >= required.width && candidate.height >= required.height;
 }
 
 function formatDuration(seconds) {
@@ -169,7 +175,8 @@ function main() {
   const recursiveSecondFiles = recursiveMp4Files(secondDirectory);
   const requiredNames = [...firstNames].sort((left, right) => left.localeCompare(right));
 
-  const rows = [];
+  let failed = false;
+  const displayWidths = { resolution: 0, video: 0, audio: 0 };
   for (const name of requiredNames) {
     let first;
     let second;
@@ -195,7 +202,7 @@ function main() {
 
     if (first && second) {
       const differences = [];
-      if (options.checks.res && first.resolution !== second.resolution) differences.push('resolution');
+      if (options.checks.res && !resolutionAtLeast(first, second)) differences.push('resolution below required');
       if (options.checks.vid && first.video !== second.video) differences.push('video codec');
       if (options.checks.aud && first.audio !== second.audio) differences.push('audio codec');
       if (options.checks.time && Math.abs(first.duration - second.duration) > DURATION_TOLERANCE_SECONDS) {
@@ -204,35 +211,26 @@ function main() {
       failure = differences.join(', ');
     }
 
-    rows.push({
-      name,
-      first,
-      second,
-      secondMissing,
-      secondName: secondMatch && secondMatch.relativeName,
-      failure
-    });
-  }
-
-  const validStats = rows.flatMap((row) => [row.first, row.second]).filter(Boolean);
-  const resolutionWidth = Math.max(0, ...validStats.map((stats) => stats.resolution.length));
-  const videoWidth = Math.max(0, ...validStats.map((stats) => stats.video.length));
-  const audioWidth = Math.max(0, ...validStats.map((stats) => stats.audio.length));
-  for (const row of rows) {
-    row.firstText = formatStats(row.first, resolutionWidth, videoWidth, audioWidth);
-    row.secondText = row.secondMissing
+    for (const stats of [first, second].filter(Boolean)) {
+      displayWidths.resolution = Math.max(displayWidths.resolution, stats.resolution.length);
+      displayWidths.video = Math.max(displayWidths.video, stats.video.length);
+      displayWidths.audio = Math.max(displayWidths.audio, stats.audio.length);
+    }
+    const statsWidth = displayWidths.resolution + displayWidths.video + displayWidths.audio + 15;
+    const firstText = formatStats(first, displayWidths.resolution, displayWidths.video, displayWidths.audio);
+    const secondText = secondMissing
       ? 'missing'
-      : formatStats(row.second, resolutionWidth, videoWidth, audioWidth);
-  }
-  const firstWidth = Math.max(0, ...rows.map((row) => row.firstText.length));
-  const secondWidth = Math.max(0, ...rows.map((row) => row.secondText.length));
-  for (const row of rows) {
-    const status = row.failure ? '[ERROR]' : '[OK]   ';
-    const matchedName = row.secondName && row.secondName !== row.name ? ` -> ${row.secondName}` : '';
-    console.log(`${status} ${row.firstText.padEnd(firstWidth)} | ${row.secondText.padEnd(secondWidth)} | ${row.name}${matchedName}`);
+      : formatStats(second, displayWidths.resolution, displayWidths.video, displayWidths.audio);
+    const status = failure ? '[ERROR]' : '[OK]   ';
+    const secondName = secondMatch && secondMatch.relativeName;
+    const matchedName = secondName && secondName !== name ? ` -> ${secondName}` : '';
+    console.log(`${status} ${firstText.padEnd(statsWidth)} | ${secondText.padEnd(statsWidth)} | ${name}${matchedName}`);
+    if (failure) failed = true;
   }
 
-  return rows.some((row) => row.failure) ? 1 : 0;
+  return failed ? 1 : 0;
 }
 
-process.exitCode = main();
+if (require.main === module) process.exitCode = main();
+
+module.exports = { resolutionAtLeast };
