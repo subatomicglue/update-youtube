@@ -278,6 +278,35 @@ test('missing YouTube subtitles fall back to the shared local transcript generat
   }
 });
 
+test('MP4 files without YouTube metadata or archive IDs fall back to local transcription', () => {
+  for (const withArchive of [false, true]) {
+    const temporary = fs.mkdtempSync(path.join(require('os').tmpdir(), 'local-transcript-unassociated-'));
+    try {
+      if (withArchive) fs.writeFileSync(path.join(temporary, 'archive.txt'), '');
+      const video = path.join(temporary, 'Locally Split Part01.mp4');
+      fs.writeFileSync(video, 'video');
+      let invocations = 0;
+      const errors = archiveTest.fetchSubtitles({ configDirectory: temporary, cookies: {} }, {}, temporary, {
+        directory: 'videos', archive: 'archive.txt'
+      }, {
+        simulate: false,
+        generateTranscript(options) {
+          invocations += 1;
+          assert.strictEqual(options.video, video);
+          const output = path.join(temporary, 'Locally Split Part01.faster-whisper.srt');
+          fs.writeFileSync(output, '1\n00:00:00,000 --> 00:00:01,000\nHello\n');
+          return output;
+        }
+      });
+      assert.deepStrictEqual(errors, []);
+      assert.strictEqual(invocations, 1);
+      assert.strictEqual(fs.existsSync(path.join(temporary, 'Locally Split Part01.faster-whisper.srt.json')), true);
+    } finally {
+      fs.rmSync(temporary, { recursive: true, force: true });
+    }
+  }
+});
+
 test('archive runs treat a valid empty transcript as no speech instead of failure', () => {
   const temporary = fs.mkdtempSync(path.join(require('os').tmpdir(), 'local-transcript-empty-'));
   try {
