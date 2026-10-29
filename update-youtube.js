@@ -19,7 +19,7 @@ function parseArguments(argv) {
   const options = {
     simulate: false, skipUpdate: false, skipInfoBackfill: false, apply: false, config: null,
     migrateQuality: false, migrateQualityRevert: false, list: false, listDetails: false,
-    listGroup: null, listGroups: false, validate: false, runGroup: null
+    listGroup: null, listGroups: false, validate: false, runGroup: null, postStepsOnly: false
   };
   for (let index = 0; index < argv.length; index += 1) {
     const argument = argv[index];
@@ -54,6 +54,7 @@ function parseArguments(argv) {
     }
     else if (argument === '--skip-update') options.skipUpdate = true;
     else if (argument === '--skip-info-backfill') options.skipInfoBackfill = true;
+    else if (argument === '--post-steps-only') options.postStepsOnly = true;
     else if (argument === '--apply') options.apply = true;
     else if (argument === '--config') options.config = argv[++index];
     else if (argument === '--help-migrate') options.helpMigrate = true;
@@ -69,6 +70,9 @@ function parseArguments(argv) {
   }
   if (options.runGroup && (options.list || options.listDetails || options.listGroups || options.validate)) {
     throw new Error('A focused archive group cannot be combined with a list or validation command.');
+  }
+  if (options.runGroup && options.postStepsOnly) {
+    throw new Error('A focused archive group cannot be combined with --post-steps-only.');
   }
   return options;
 }
@@ -100,6 +104,7 @@ function printHelp() {
     `  --apply          Apply a validated naming migration plan\n` +
     `  --skip-update    Use the cached yt-dlp without checking GitHub\n` +
     `  --skip-info-backfill  Do not fill missing .info.json files\n` +
+    `  --post-steps-only  Run configured postSteps only; skip downloads and archive processing\n` +
     `  --help-migrate   Show the naming-migration guide\n` +
     `  --help, -h       Show this help\n\n` +
     `Transcript generation:\n\n` +
@@ -167,6 +172,19 @@ async function main() {
   console.log(`[config] ${path.resolve(options.config)}`);
   console.log(`[config] customconfig.json ${config.customConfigLoaded ? 'loaded' : 'not present'}`);
   if (options.runGroup) console.log(`[group] ${options.runGroup}`);
+  if (options.postStepsOnly) {
+    printBanner('POST STEPS');
+    const errors = runPostSteps(config, { ...options, entrypoint: __filename });
+    if (errors.length > 0) {
+      const unreported = errors.filter(Boolean);
+      if (unreported.length > 0) {
+        console.error(errorText(`\n[ERROR] ${unreported.length} operation${unreported.length === 1 ? '' : 's'} failed:`));
+        for (const error of unreported) console.error(`  - ${error}`);
+      }
+      process.exitCode = 1;
+    }
+    return;
+  }
   //printBanner('TOOLS');
   const tools = await ensureTools(config, options);
   assertCookieAccess(config);

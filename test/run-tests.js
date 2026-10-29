@@ -307,6 +307,78 @@ test('MP4 files without YouTube metadata or archive IDs fall back to local trans
   }
 });
 
+test('existing transcript JSON prevents Whisper with or without YouTube metadata', () => {
+  for (const withMetadata of [false, true]) {
+    const temporary = fs.mkdtempSync(path.join(require('os').tmpdir(), 'transcript-json-existing-'));
+    try {
+      const stem = withMetadata ? 'Known Video' : 'Local Video';
+      const id = 'BQ2SAA08k7k';
+      fs.writeFileSync(path.join(temporary, 'archive.txt'), withMetadata ? `youtube ${id}\n` : '');
+      fs.writeFileSync(path.join(temporary, `${stem}.mp4`), 'video');
+      if (withMetadata) fs.writeFileSync(path.join(temporary, `${stem}.info.json`), JSON.stringify({ id }));
+      const json = path.join(temporary, withMetadata ? `${stem}-${id}.en.srt.json` : `${stem}.faster-whisper.srt.json`);
+      fs.writeFileSync(json, JSON.stringify([{ text: 'Existing transcript' }]));
+      fs.writeFileSync(path.join(temporary, 'template-transcript.md'), '{%transcript%}\n');
+      let invocations = 0;
+      const errors = archiveTest.fetchSubtitles({ configDirectory: temporary, cookies: {} }, {}, temporary, {
+        directory: 'videos', archive: 'archive.txt'
+      }, {
+        simulate: false,
+        generateTranscript() { invocations += 1; }
+      });
+      assert.deepStrictEqual(errors, []);
+      assert.strictEqual(invocations, 0);
+    } finally {
+      fs.rmSync(temporary, { recursive: true, force: true });
+    }
+  }
+});
+
+test('restricted YouTube subtitles cover every legacy MP4 name sharing their metadata ID', () => {
+  const temporary = fs.mkdtempSync(path.join(require('os').tmpdir(), 'transcript-legacy-name-'));
+  const id = '_TCcDV_vAnU';
+  try {
+    fs.writeFileSync(path.join(temporary, 'archive.txt'), `youtube ${id}\n`);
+    for (const stem of ["20250909-Savior's Strings", "20250912-Savior's Strings"]) {
+      fs.writeFileSync(path.join(temporary, `${stem}.mp4`), 'video');
+      fs.writeFileSync(path.join(temporary, `${stem}.info.json`), JSON.stringify({
+        id, subtitles: {}, automatic_captions: { en: [] }
+      }));
+    }
+    const subtitle = path.join(temporary, `20250912-Savior_s_Strings-${id}.en.srt`);
+    fs.writeFileSync(subtitle, '1\n00:00:00,000 --> 00:00:01,000\nHello\n');
+    fs.writeFileSync(`${subtitle}.json`, JSON.stringify([{ text: 'Hello' }]));
+    fs.writeFileSync(path.join(temporary, `20250912-Savior_s_Strings-${id}.en.md`), 'existing markdown');
+    fs.writeFileSync(path.join(temporary, 'template-transcript.md'), '{%transcript%}\n');
+    let invocations = 0;
+    const messages = [];
+    const originalLog = console.log;
+    let errors;
+    console.log = (message) => messages.push(String(message));
+    try {
+      errors = archiveTest.fetchSubtitles({ configDirectory: temporary, cookies: {} }, {}, temporary, {
+        directory: 'videos', archive: 'archive.txt'
+      }, {
+        simulate: false,
+        generateTranscript() {
+          invocations += 1;
+          throw new Error('Whisper must not run for an ID with an existing YouTube subtitle');
+        }
+      });
+    } finally {
+      console.log = originalLog;
+    }
+    assert.deepStrictEqual(errors, []);
+    assert.strictEqual(invocations, 0);
+    assert.strictEqual(fs.readdirSync(temporary).some((name) => name.includes('faster-whisper')), false);
+    assert(messages.some((message) => message.includes(
+      `[${id}] videos/20250909-Savior's Strings.mp4 (+1 filename variant) (1/1)`
+    )));
+  } finally {
+    fs.rmSync(temporary, { recursive: true, force: true });
+  }
+});
+
 test('archive runs treat a valid empty transcript as no speech instead of failure', () => {
   const temporary = fs.mkdtempSync(path.join(require('os').tmpdir(), 'local-transcript-empty-'));
   try {
@@ -529,6 +601,15 @@ test('quality migration flags are isolated and audit implies simulation', () => 
   assert.throws(
     () => parseArchiveArguments(['--migrate-quality', '--migrate-quality-revert']),
     /mutually exclusive/u
+  );
+});
+
+test('post-steps-only is parsed and cannot be combined with a focused group', () => {
+  assert.strictEqual(parseArchiveArguments(['--post-steps-only']).postStepsOnly, true);
+  assert.strictEqual(parseArchiveArguments(['--post-steps-only', '--dry-run']).simulate, true);
+  assert.throws(
+    () => parseArchiveArguments(['DrawingDownTheDragon', '--post-steps-only']),
+    /cannot be combined/u
   );
 });
 
