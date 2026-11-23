@@ -227,6 +227,17 @@ test('named videos inherit or override naming and migration profiles per URL ent
     'Inherited-%(id)s.%(ext)s');
 });
 
+test('naming migration recognizes YouTube and locally generated transcript companions', () => {
+  const suffix = migrateTest.migrationCompanionSuffix;
+  assert.strictEqual(suffix('Old-BQ2SAA08k7k.en.srt', 'BQ2SAA08k7k', 'Old'), '.en.srt');
+  assert.strictEqual(suffix('Old-BQ2SAA08k7k.en.srt.json', 'BQ2SAA08k7k', 'Old'), '.en.srt.json');
+  assert.strictEqual(suffix('Old-BQ2SAA08k7k.en.md', 'BQ2SAA08k7k', 'Old'), '.en.md');
+  assert.strictEqual(suffix('Old.faster-whisper.srt', 'BQ2SAA08k7k', 'Old'), '.faster-whisper.srt');
+  assert.strictEqual(suffix('Old.faster-whisper.srt.json', 'BQ2SAA08k7k', 'Old'), '.faster-whisper.srt.json');
+  assert.strictEqual(suffix('Old.faster-whisper.md', 'BQ2SAA08k7k', 'Old'), '.faster-whisper.md');
+  assert.strictEqual(suffix('Other.faster-whisper.md', 'BQ2SAA08k7k', 'Old'), null);
+});
+
 test('focused groups retain every source in the selected directory', () => {
   const focused = focusConfig({
     targets: [
