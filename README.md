@@ -140,6 +140,27 @@ Each target accepts `directory`, `url`, and `namingProfile`. Checked-in profiles
 
 Profiles live in `namingProfiles` and contain a yt-dlp `video` output template plus an optional distinct `subtitle` template. Set a target's `enable` field to `0` to skip it or `1` to run it. Optional target fields include `archive`, `subtitleLanguage`, `extraArgs`, and the legacy `enabled` boolean.
 
+Each target's `url` may be one string or an array mixing playlist strings and single-video objects:
+
+```json
+{
+  "directory": "ExampleChannel/Incoming",
+  "namingProfile": "title",
+  "url": [
+    "https://www.youtube.com/@CHANNEL_NAME/videos",
+    {
+      "url": "https://www.youtube.com/watch?v=VIDEO_ID",
+      "name": "Descriptive_Output_Name",
+      "namingProfile": "dated"
+    }
+  ]
+}
+```
+
+`name` marks an object entry as one named video. It is a plain manual title (no directory or extension) and must be unique within its directory. When `namingProfile` is present, the manual name replaces `%(title)s` in that profile; for example, `dated` produces `UPLOAD_DATE-Descriptive_Output_Name.mp4`. Without a profile, the exact name is used. Named videos and playlists enter the same source list and processing pipeline, including metadata, subtitles, local transcript fallback, transcript JSON and Markdown, link rules, transcript collection, and post-steps. Named videos are forced to one video with `--no-playlist` and get a `NAME.archive.txt` companion ledger by default; `archive` can override it. Mixed sources may safely share a directory. Their URLs must be unique within that directory. Every source is downloaded with its appropriate yt-dlp arguments, and shared follow-up processing begins after all downloads in the directory, when every ownership ledger is available.
+
+Object entries inherit target-level settings, including `namingProfile` and `migrateFrom`, and may override them individually. Migration renders both profiles with the entry's manual `name`, limits the plan to IDs owned by that source ledger, and skips files that already match the active profile.
+
 ### Naming migration
 
 Migration is declarative. First run `update-youtube --validate "GROUP"` and resolve every missing `.info.json`; metadata is required to calculate safe moves. Then change a target to its desired profile and declare its previous profile:

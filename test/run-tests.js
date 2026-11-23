@@ -4,6 +4,7 @@ const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
 const { findConfigPath, mergeConfig, resolveArchive } = require('../lib/config');
+const { groupSources, injectSources, sourceOutputTemplate } = require('../lib/sources');
 const { resolutionAtLeast } = require('../compare');
 const {
   applyLinkRules, backfillInfo, outputFormat, repairArchivedVideos, videoFormat, _test: archiveTest
@@ -11,7 +12,7 @@ const {
 const {
   canonicalSrtJson, convertSrtText, isSrtCompanion, isSrtJsonCompanion
 } = require('../lib/subtitles');
-const { handleMigrations } = require('../lib/migrate');
+const { handleMigrations, _test: migrateTest } = require('../lib/migrate');
 const { colorErrorLines, errorText, formatProcessError, ProcessError, run } = require('../lib/process');
 const { meetsRequirements, parseArguments: parseVideoCheckArguments } = require('../check-video-resolution');
 const { focusConfig, parseArguments: parseArchiveArguments } = require('../update-youtube');
@@ -49,6 +50,194 @@ test('custom targets and post-steps append while settings override', () => {
   assert.deepStrictEqual(result.targets.map((item) => item.url), ['a', 'b']);
   assert.strictEqual(result.postSteps.length, 1);
   assert.deepStrictEqual(result.cookies, { macos: 'safari', windows: 'chrome' });
+});
+
+test('named video entries are injected into the shared target pipeline', () => {
+  const config = injectSources({
+    targets: [{ directory: 'OneOffs', url: [
+      'https://example.test/playlist',
+        { url: 'https://youtu.be/BQ2SAA08k7k', name: 'Special_Episode' },
+        { url: 'https://youtu.be/abcdefghijk', name: 'Another_Episode', enable: 0 }
+    ] }]
+  });
+  assert.strictEqual(config.targets.length, 3);
+  assert.strictEqual(config.targets[0].sourceKind, 'playlist');
+  assert.deepStrictEqual(config.targets[1], {
+    archive: 'Special_Episode.archive.txt', directory: 'OneOffs',
+    name: 'Special_Episode', sourceKind: 'video',
+    url: 'https://youtu.be/BQ2SAA08k7k'
+  });
+  assert.strictEqual(config.targets[2].enable, 0);
+});
+
+test('named video entries cannot escape their configured directory', () => {
+  for (const name of ['../escape', 'nested/name', 'video.mp4', '', ' spaced ']) {
+    assert.throws(() => injectSources({
+      targets: [{ directory: 'OneOffs', url: [{ url: 'https://youtu.be/BQ2SAA08k7k', name }] }]
+    }), /name/u);
+  }
+});
+
+test('named video names are unique per directory', () => {
+  assert.throws(() => injectSources({ targets: [{ directory: 'OneOffs', url: [
+    { url: 'https://youtu.be/BQ2SAA08k7k', name: 'Episode' },
+    { url: 'https://youtu.be/abcdefghijk', name: 'Episode' }
+  ] }] }), /duplicate name/u);
+});
+
+test('named videos do not inherit a playlist archive ledger', () => {
+  const config = injectSources({ targets: [{
+    archive: 'playlist-archive.txt', directory: 'Shared', url: [
+      'https://example.test/playlist',
+      { url: 'https://youtu.be/BQ2SAA08k7k', name: 'Episode' }
+    ]
+  }] });
+  assert.strictEqual(config.targets[0].archive, 'playlist-archive.txt');
+  assert.strictEqual(config.targets[1].archive, 'Episode.archive.txt');
+});
+
+test('playlist and named video URLs form one source list when sharing a directory', () => {
+  const config = injectSources({
+    targets: [{ directory: 'Shared', url: [
+      'https://example.test/playlist',
+      { url: 'https://youtu.be/BQ2SAA08k7k', name: 'Episode' }
+    ] }]
+  });
+  assert.deepStrictEqual(config.targets.map(({ directory, sourceKind }) => ({ directory, sourceKind })), [
+    { directory: 'Shared', sourceKind: 'playlist' },
+    { directory: 'Shared', sourceKind: 'video' }
+  ]);
+  const groups = groupSources(config);
+  assert.strictEqual(groups.length, 1);
+  assert.strictEqual(groups[0].directory, 'Shared');
+  assert.deepStrictEqual(groups[0].sources.map((source) => source.url), [
+    'https://example.test/playlist', 'https://youtu.be/BQ2SAA08k7k'
+  ]);
+});
+
+test('source URLs must be unique within a shared directory', () => {
+  assert.throws(() => groupSources({ targets: [
+    { directory: 'Shared', url: 'https://youtu.be/BQ2SAA08k7k' },
+    { directory: 'Shared', url: 'https://youtu.be/BQ2SAA08k7k', sourceKind: 'video' }
+  ] }), /Duplicate source URL/u);
+});
+
+test('shared-directory source ownership follows each archive ledger', () => {
+  const temporary = fs.mkdtempSync(path.join(require('os').tmpdir(), 'source-ownership-'));
+  try {
+    fs.writeFileSync(path.join(temporary, 'archive.txt'), 'youtube playlist01\n');
+    fs.writeFileSync(path.join(temporary, 'Episode.archive.txt'), 'youtube BQ2SAA08k7k\n');
+    const playlist = { directory: temporary, sourceKind: 'playlist' };
+    const single = {
+      archive: 'Episode.archive.txt', directory: temporary, name: 'Episode', sourceKind: 'video'
+    };
+    const config = { archiveDirectory: '.', targets: [playlist, single], workingDirectory: '/' };
+    const playlistOwnership = archiveTest.directorySourceOwnership(config, temporary, playlist);
+    const singleOwnership = archiveTest.directorySourceOwnership(config, temporary, single);
+    assert.deepStrictEqual([...playlistOwnership.claimed].sort(), ['BQ2SAA08k7k', 'playlist01']);
+    assert.strictEqual(playlistOwnership.first, true);
+    assert.strictEqual(singleOwnership.first, false);
+    assert.deepStrictEqual(archiveTest.sourceArchiveIds(temporary, single), ['BQ2SAA08k7k']);
+  } finally {
+    fs.rmSync(temporary, { recursive: true, force: true });
+  }
+});
+
+test('shared-directory validation includes every source archive ledger', () => {
+  const temporary = fs.mkdtempSync(path.join(require('os').tmpdir(), 'source-validation-'));
+  try {
+    fs.writeFileSync(path.join(temporary, 'archive.txt'), 'youtube playlist01\n');
+    fs.writeFileSync(path.join(temporary, 'Episode.archive.txt'), 'youtube BQ2SAA08k7k\n');
+    const config = { archiveDirectory: '.', workingDirectory: '/', targets: [
+      { directory: temporary, sourceKind: 'playlist' },
+      { archive: 'Episode.archive.txt', directory: temporary, sourceKind: 'video' }
+    ] };
+    assert.deepStrictEqual(validateGroup(config, temporary), [
+      ['archive ID BQ2SAA08k7k', ['.mp4', '.info.json', '.srt']],
+      ['archive ID playlist01', ['.mp4', '.info.json', '.srt']]
+    ]);
+  } finally {
+    fs.rmSync(temporary, { recursive: true, force: true });
+  }
+});
+
+test('named videos use fixed video and ID-bearing subtitle templates', () => {
+  const target = injectSources({ targets: [{ directory: 'OneOffs', url: [
+    { url: 'https://youtu.be/BQ2SAA08k7k', name: 'Special_Episode' }
+  ] }] }).targets[0];
+  assert.strictEqual(archiveTest.targetOutputFormat({}, target), 'Special_Episode.%(ext)s');
+  assert.strictEqual(archiveTest.targetOutputFormat({}, target, true), 'Special_Episode-%(id)s.%(ext)s');
+  const args = archiveTest.targetDownloadArgs({}, {
+    ffmpeg: '/ffmpeg', jsRuntime: { name: 'deno', command: '/deno' }
+  }, target, { simulate: false });
+  assert(args.includes('--no-playlist'));
+  assert(!args.includes('--yes-playlist'));
+  assert.strictEqual(args[args.indexOf('--output') + 1], 'Special_Episode.%(ext)s');
+  assert.strictEqual(args[args.length - 1], 'https://youtu.be/BQ2SAA08k7k');
+});
+
+test('named videos substitute their manual name into naming profiles', () => {
+  const config = injectSources({
+    namingProfiles: {
+      dated: {
+        video: '%(upload_date)s-%(title)s.%(ext)s',
+        subtitle: '%(upload_date)s-%(title)s-%(id)s.%(ext)s'
+      }
+    },
+    targets: [{ directory: 'OneOffs', url: [{
+      url: 'https://youtu.be/BQ2SAA08k7k',
+      name: 'Interview with Maddalena - num 4', namingProfile: 'dated'
+    }] }]
+  });
+  const target = config.targets[0];
+  assert.strictEqual(archiveTest.targetOutputFormat(config, target),
+    '%(upload_date)s-Interview with Maddalena - num 4.%(ext)s');
+  assert.strictEqual(archiveTest.targetOutputFormat(config, target, true),
+    '%(upload_date)s-Interview with Maddalena - num 4-%(id)s.%(ext)s');
+});
+
+test('named videos inherit or override naming and migration profiles per URL entry', () => {
+  const config = injectSources({
+    namingProfiles: {
+      title: { video: '%(title)s.%(ext)s', subtitle: '%(title)s-%(id)s.%(ext)s' },
+      dated: { video: '%(upload_date)s-%(title)s.%(ext)s', subtitle: '%(upload_date)s-%(title)s-%(id)s.%(ext)s' },
+      'dated-with-id': { video: '%(upload_date)s-%(title)s [%(id)s].%(ext)s' }
+    },
+    targets: [{
+      directory: 'Shared', namingProfile: 'dated', migrateFrom: 'title', url: [
+        { url: 'https://youtu.be/BQ2SAA08k7k', name: 'Inherited' },
+        { url: 'https://youtu.be/abcdefghijk', name: 'Overridden', namingProfile: 'dated-with-id', migrateFrom: 'dated' }
+      ]
+    }]
+  });
+  const [inherited, overridden] = config.targets;
+  assert.strictEqual(inherited.namingProfile, 'dated');
+  assert.strictEqual(inherited.migrateFrom, 'title');
+  assert.strictEqual(overridden.namingProfile, 'dated-with-id');
+  assert.strictEqual(overridden.migrateFrom, 'dated');
+  assert.strictEqual(migrateTest.sourceProfile(config, inherited).video,
+    '%(upload_date)s-Inherited.%(ext)s');
+  assert.strictEqual(migrateTest.sourceProfile(config, inherited, inherited.migrateFrom).video,
+    'Inherited.%(ext)s');
+  assert.strictEqual(migrateTest.sourceProfile(config, overridden).video,
+    '%(upload_date)s-Overridden [%(id)s].%(ext)s');
+  assert.strictEqual(migrateTest.sourceProfile(config, overridden, overridden.migrateFrom).video,
+    '%(upload_date)s-Overridden.%(ext)s');
+  assert.strictEqual(sourceOutputTemplate(inherited, '%(title)s-%(id)s.%(ext)s'),
+    'Inherited-%(id)s.%(ext)s');
+});
+
+test('focused groups retain every source in the selected directory', () => {
+  const focused = focusConfig({
+    targets: [
+      { directory: 'Shared', url: 'playlist', enable: 0 },
+      { directory: 'Shared', url: 'single', sourceKind: 'video', enabled: false },
+      { directory: 'Other', url: 'other' }
+    ],
+    linkRules: [], transcriptDirectories: []
+  }, 'Shared');
+  assert.deepStrictEqual(focused.targets.map((target) => target.url), ['playlist', 'single']);
+  assert(focused.targets.every((target) => target.enable === 1 && target.enabled === true));
 });
 
 test('transcript Markdown uses filename metadata when info JSON is missing', () => {

@@ -3,10 +3,11 @@
 
 const path = require('path');
 const { findConfigPath, loadConfig } = require('./lib/config');
+const { groupSources } = require('./lib/sources');
 const { ensureTools } = require('./lib/tools');
 const {
-  applyLinkRules, assertCookieAccess, backfillInfo, collectTranscripts, downloadTarget,
-  repairArchivedVideos, runPostSteps
+  applyLinkRules, assertCookieAccess, backfillInfo, collectTranscripts, downloadSource,
+  repairArchivedVideos, runPostSteps, serviceSource
 } = require('./lib/archive');
 const { handleMigrations } = require('./lib/migrate');
 const { runQualityMode } = require('./lib/quality');
@@ -78,11 +79,11 @@ function parseArguments(argv) {
 }
 
 function focusConfig(config, group) {
-  const target = (config.targets || []).find((candidate) => candidate.directory === group);
-  if (!target) throw new Error(`Unknown group: ${group}`);
+  const targets = (config.targets || []).filter((candidate) => candidate.directory === group);
+  if (targets.length === 0) throw new Error(`Unknown group: ${group}`);
   return {
     ...config,
-    targets: [{ ...target, enable: 1, enabled: true }],
+    targets: targets.map((target) => ({ ...target, enable: 1, enabled: true })),
     linkRules: (config.linkRules || []).filter((rule) => rule.sourceDirectory === group),
     transcriptDirectories: [group],
     postSteps: []
@@ -91,7 +92,7 @@ function focusConfig(config, group) {
 
 function printHelp() {
   console.log(`Usage: update-youtube [GROUP] [options]\n\n` +
-    `  GROUP            Run one exact configured target, regardless of its enable setting\n` +
+    `  GROUP            Run every configured source in one directory group, regardless of enable settings\n` +
     `  --config FILE    Use an alternate base config (default: config.json)\n` +
     `  --simulate, --dry-run, -n  Preview filesystem work without changing files\n` +
     `  --migrate-quality          Safely replace archived videos when configured quality is better\n` +
@@ -202,12 +203,20 @@ async function main() {
     return;
   }
   const errors = [];
-  for (const target of config.targets || []) {
-    if (target.enable === 0 || target.enabled === false) continue;
-    try {
-      errors.push(...downloadTarget(config, tools, target, options));
-    } catch (error) {
-      errors.push(`${target.directory}: ${error.message}`);
+  for (const group of groupSources(config)) {
+    for (const source of group.sources) {
+      try {
+        errors.push(...downloadSource(config, tools, source, options));
+      } catch (error) {
+        errors.push(`${source.directory}: ${error.message}`);
+      }
+    }
+    for (const source of group.sources) {
+      try {
+        errors.push(...serviceSource(config, tools, source, options));
+      } catch (error) {
+        errors.push(`${source.directory}: ${error.message}`);
+      }
     }
   }
   errors.push(...applyLinkRules(config, tools.appDirectory, options));

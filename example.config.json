@@ -77,7 +77,14 @@
     {
       "enable": 0,
       "directory": ".ExampleChannel/.Incoming",
-      "url": "https://www.youtube.com/@CHANNEL_NAME/videos",
+      "url": [
+        "https://www.youtube.com/@CHANNEL_NAME/videos",
+        {
+          "url": "https://www.youtube.com/watch?v=VIDEO_ID",
+          "name": "Descriptive_Output_Name",
+          "namingProfile": "dated"
+        }
+      ],
       "namingProfile": "title"
     }
   ],
